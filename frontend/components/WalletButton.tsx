@@ -1,9 +1,64 @@
 'use client'
 
 import { useWallet } from '@/lib/useWallet'
+import { useNotifications } from './NotificationSystem'
+import { useAnalytics } from '@/lib/analytics'
+import { useEffect } from 'react'
 
 export function WalletButton() {
   const { isConnected, address, isConnecting, error, connectWallet, disconnectWallet } = useWallet()
+  const { addNotification } = useNotifications()
+  const { trackUserAction, trackError } = useAnalytics()
+
+  // Show notification when wallet connection state changes
+  useEffect(() => {
+    if (isConnected && address) {
+      // Track wallet connection
+      trackUserAction({
+        action: 'wallet_connected',
+        userAddress: address,
+        metadata: {
+          walletType: 'MetaMask' // Could detect wallet type
+        }
+      })
+
+      addNotification({
+        type: 'success',
+        title: 'Wallet Connected',
+        message: `Connected to ${address.slice(0, 6)}...${address.slice(-4)}`,
+        duration: 4000
+      })
+    }
+  }, [isConnected, address, addNotification, trackUserAction])
+
+  // Show notification for connection errors
+  useEffect(() => {
+    if (error) {
+      // Track connection error
+      trackError(new Error(error), {
+        context: 'wallet_connection',
+        errorType: 'connection_failed'
+      })
+
+      addNotification({
+        type: 'error',
+        title: 'Wallet Connection Error',
+        message: error,
+        duration: 8000
+      })
+    }
+  }, [error, addNotification, trackError])
+
+  const handleDisconnect = () => {
+    if (address) {
+      // Track wallet disconnection
+      trackUserAction({
+        action: 'wallet_disconnected',
+        userAddress: address
+      })
+    }
+    disconnectWallet()
+  }
 
   if (isConnected && address) {
     return (
@@ -12,7 +67,7 @@ export function WalletButton() {
           {address.slice(0, 6)}...{address.slice(-4)}
         </div>
         <button
-          onClick={disconnectWallet}
+          onClick={handleDisconnect}
           className="bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg text-sm transition-colors"
         >
           Disconnect

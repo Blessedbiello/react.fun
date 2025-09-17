@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react'
 import { formatEther, parseEther } from 'viem'
 import { useWallet } from '@/lib/useWallet'
 import { BONDING_CURVE_ABI, LAUNCH_TOKEN_ABI } from '@/lib/config'
+import { useNotifications } from './NotificationSystem'
+import { useAnalytics } from '@/lib/analytics'
 
 interface Token {
   address: string
@@ -30,6 +32,8 @@ interface CurveStats {
 
 export function TokenCard({ token }: TokenCardProps) {
   const { isConnected, walletClient, publicClient, address } = useWallet()
+  const { addNotification } = useNotifications()
+  const { trackUserAction, trackError, trackPerformance } = useAnalytics()
   const [stats, setStats] = useState<CurveStats | null>(null)
   const [userBalance, setUserBalance] = useState<bigint>(0n)
   const [buyAmount, setBuyAmount] = useState('0.01')
@@ -89,14 +93,87 @@ export function TokenCard({ token }: TokenCardProps) {
     }
   }
 
+  const parseTradeError = (error: any): string => {
+    const errorMsg = error.message || error.toString()
+
+    if (errorMsg.includes('AmountTooSmall')) {
+      return 'Trade amount too small. Minimum: 0.001 ETH'
+    }
+    if (errorMsg.includes('AmountTooLarge')) {
+      return 'Trade amount too large. Maximum: 10 ETH'
+    }
+    if (errorMsg.includes('SlippageExceeded')) {
+      return 'Slippage exceeded. Price moved unfavorably, try again'
+    }
+    if (errorMsg.includes('MEVProtectionActive')) {
+      return 'MEV protection active. Wait a few blocks before trading again'
+    }
+    if (errorMsg.includes('CurveMigrated')) {
+      return 'Token has graduated to DEX. Trade on DEX instead'
+    }
+    if (errorMsg.includes('Paused')) {
+      return 'Trading is paused. Try again later'
+    }
+    if (errorMsg.includes('insufficient funds')) {
+      return 'Insufficient funds. Check your ETH balance'
+    }
+    if (errorMsg.includes('User rejected')) {
+      return 'Transaction cancelled by user'
+    }
+
+    return 'Trade failed. Please try again'
+  }
+
   const buyTokens = async () => {
     if (!isConnected || !walletClient || !stats) return
 
+    // Validate amount
+    const amount = parseFloat(buyAmount)
+    if (amount < 0.001) {
+      addNotification({
+        type: 'warning',
+        title: 'Invalid Amount',
+        message: 'Minimum buy amount is 0.001 ETH'
+      })
+      return
+    }
+    if (amount > 10) {
+      addNotification({
+        type: 'warning',
+        title: 'Amount Too Large',
+        message: 'Maximum buy amount is 10 ETH per transaction'
+      })
+      return
+    }
+
     setIsTrading(true)
+    addNotification({
+      type: 'info',
+      title: 'Transaction Submitted',
+      message: `Buying ${amount} ETH worth of ${token.symbol} tokens...`,
+      duration: 3000
+    })
+
+    const startTime = performance.now()
+
     try {
       const ethAmount = parseEther(buyAmount)
 
-      // Calculate expected tokens
+      // Check user balance first
+      const balance = await publicClient.getBalance({
+        address: walletClient.account.address
+      })
+
+      if (balance < ethAmount + parseEther('0.001')) { // Buffer for gas
+        addNotification({
+          type: 'error',
+          title: 'Insufficient Balance',
+          message: 'You need more ETH for this trade plus gas fees'
+        })
+        return
+      }
+
+      // Calculate expected tokens with slippage protection
       const expectedTokens = await publicClient.readContract({
         address: token.bondingCurve as `0x${string}`,
         abi: BONDING_CURVE_ABI,
@@ -104,26 +181,109 @@ export function TokenCard({ token }: TokenCardProps) {
         args: [ethAmount],
       })
 
-      // Execute buy
+      const minTokens = (expectedTokens as bigint) * 95n / 100n // 5% slippage tolerance
+
+      // Simulate transaction first
       const { request } = await publicClient.simulateContract({
         address: token.bondingCurve as `0x${string}`,
         abi: BONDING_CURVE_ABI,
         functionName: 'buyTokens',
-        args: [0n], // No slippage protection for demo
+        args: [minTokens, 500], // 5% slippage in basis points
         value: ethAmount,
         account: walletClient.account,
       })
 
+      // Execute transaction
       const hash = await walletClient.writeContract(request)
-      await publicClient.waitForTransactionReceipt({ hash })
 
-      // Reload stats and balance
-      loadTokenStats()
-      loadUserBalance()
-      setBuyAmount('0.01')
+      // Wait for confirmation with timeout
+      const receipt = await Promise.race([
+        publicClient.waitForTransactionReceipt({ hash }),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Transaction timeout')), 60000)
+        )
+      ]) as any
+
+      if (receipt.status === 'success') {
+        const endTime = performance.now()
+
+        // Track successful purchase
+        trackUserAction({
+          action: 'token_purchased',
+          tokenAddress: token.address,
+          amount: buyAmount,
+          transactionHash: hash,
+          userAddress: address || undefined,
+          metadata: {
+            tokenName: token.name,
+            tokenSymbol: token.symbol,
+            tradeTime: endTime - startTime,
+            gasUsed: receipt.gasUsed?.toString()
+          }
+        })
+
+        // Track performance
+        trackPerformance('token_purchase_time', endTime - startTime, {
+          success: true,
+          amount: buyAmount,
+          tokenSymbol: token.symbol
+        })
+
+        // Reload stats and balance
+        await Promise.all([loadTokenStats(), loadUserBalance()])
+        setBuyAmount('0.01')
+        setShowTrading(false)
+
+        addNotification({
+          type: 'success',
+          title: 'Trade Successful! 🎉',
+          message: `Successfully bought ${token.symbol} tokens for ${amount} ETH`,
+          duration: 6000
+        })
+      } else {
+        const endTime = performance.now()
+
+        // Track failed transaction
+        trackPerformance('token_purchase_time', endTime - startTime, {
+          success: false,
+          reason: 'transaction_reverted',
+          amount: buyAmount,
+          tokenSymbol: token.symbol
+        })
+
+        addNotification({
+          type: 'error',
+          title: 'Transaction Failed',
+          message: 'Transaction was reverted. Check the explorer for details.'
+        })
+      }
     } catch (err: any) {
       console.error('Error buying tokens:', err)
-      alert('Failed to buy tokens: ' + (err.message || 'Unknown error'))
+      const endTime = performance.now()
+
+      // Track error
+      trackError(err, {
+        context: 'token_purchase',
+        tokenAddress: token.address,
+        tokenSymbol: token.symbol,
+        amount: buyAmount,
+        userAddress: address?.slice(0, 10)
+      })
+
+      // Track failed performance
+      trackPerformance('token_purchase_time', endTime - startTime, {
+        success: false,
+        error: parseTradeError(err),
+        amount: buyAmount,
+        tokenSymbol: token.symbol
+      })
+
+      addNotification({
+        type: 'error',
+        title: 'Trade Failed',
+        message: parseTradeError(err),
+        duration: 8000
+      })
     } finally {
       setIsTrading(false)
     }

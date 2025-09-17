@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { useWallet } from '@/lib/useWallet'
 import { parseEther, formatEther } from 'viem'
 import { TOKEN_FACTORY_ABI, CONTRACT_ADDRESSES } from '@/lib/config'
+import { useNotifications } from './NotificationSystem'
+import { useAnalytics } from '@/lib/analytics'
 
 interface TokenForm {
   name: string
@@ -13,7 +15,9 @@ interface TokenForm {
 }
 
 export function TokenCreator() {
-  const { isConnected, walletClient, publicClient } = useWallet()
+  const { isConnected, walletClient, publicClient, address } = useWallet()
+  const { addNotification } = useNotifications()
+  const { trackUserAction, trackError, trackPerformance } = useAnalytics()
   const [form, setForm] = useState<TokenForm>({
     name: '',
     symbol: '',
@@ -31,6 +35,52 @@ export function TokenCreator() {
     setSuccess(null)
   }
 
+  const parseContractError = (error: any): string => {
+    const errorMsg = error.message || error.toString()
+
+    // Handle specific contract errors
+    if (errorMsg.includes('AmountTooSmall')) {
+      return 'Creation fee is too small. Please ensure you have at least 0.001 ETH.'
+    }
+    if (errorMsg.includes('InsufficientBalance')) {
+      return 'Insufficient balance. You need at least 0.001 ETH to create a token.'
+    }
+    if (errorMsg.includes('TokenAlreadyExists')) {
+      return 'A token with this name or symbol already exists. Please choose different values.'
+    }
+    if (errorMsg.includes('InvalidParameters')) {
+      return 'Invalid token parameters. Please check your input values.'
+    }
+    if (errorMsg.includes('Paused')) {
+      return 'Token creation is currently paused. Please try again later.'
+    }
+    if (errorMsg.includes('User rejected')) {
+      return 'Transaction was rejected. Please approve the transaction to continue.'
+    }
+    if (errorMsg.includes('insufficient funds')) {
+      return 'Insufficient funds. Please ensure you have enough ETH for the creation fee and gas costs.'
+    }
+    if (errorMsg.includes('network')) {
+      return 'Network error. Please check your connection and try again.'
+    }
+
+    // Generic fallback
+    return errorMsg.length > 100 ? 'Transaction failed. Please try again.' : errorMsg
+  }
+
+  const validateForm = (): string | null => {
+    if (!form.name.trim()) return 'Token name is required'
+    if (!form.symbol.trim()) return 'Token symbol is required'
+    if (form.name.length < 2) return 'Token name must be at least 2 characters'
+    if (form.symbol.length < 2) return 'Token symbol must be at least 2 characters'
+    if (form.symbol.length > 10) return 'Token symbol must be 10 characters or less'
+    if (!/^[A-Za-z0-9\s]+$/.test(form.name)) return 'Token name can only contain letters, numbers, and spaces'
+    if (!/^[A-Za-z0-9]+$/.test(form.symbol)) return 'Token symbol can only contain letters and numbers'
+    if (form.description.length > 500) return 'Description must be 500 characters or less'
+    if (form.imageUrl && !form.imageUrl.match(/^https?:\/\/.+/)) return 'Image URL must be a valid HTTP/HTTPS URL'
+    return null
+  }
+
   const createToken = async (e: React.FormEvent) => {
     e.preventDefault()
 
@@ -39,44 +89,149 @@ export function TokenCreator() {
       return
     }
 
-    if (!form.name || !form.symbol) {
-      setError('Name and symbol are required')
+    const validationError = validateForm()
+    if (validationError) {
+      setError(validationError)
       return
     }
 
     setIsCreating(true)
     setError(null)
+    setSuccess(null)
+
+    const startTime = performance.now()
 
     try {
       // TODO: Update with actual deployed contract address
       if (CONTRACT_ADDRESSES.TOKEN_FACTORY === '0x0000000000000000000000000000000000000000') {
-        setError('Contract not deployed yet. Please deploy the contracts first.')
+        setError('Contracts not deployed yet. Please deploy the contracts first.')
         return
       }
 
+      // First check if user has sufficient balance
+      const balance = await publicClient.getBalance({
+        address: walletClient.account.address
+      })
+
+      if (balance < parseEther('0.002')) { // 0.001 for fee + buffer for gas
+        addNotification({
+          type: 'error',
+          title: 'Insufficient Balance',
+          message: 'You need at least 0.002 ETH (0.001 ETH creation fee + gas costs)',
+          duration: 8000
+        })
+        return
+      }
+
+      // Notify user that creation is starting
+      addNotification({
+        type: 'info',
+        title: 'Creating Token...',
+        message: `Creating ${form.name} (${form.symbol}) token`,
+        duration: 4000
+      })
+
+      // Simulate the transaction first to catch errors early
       const { request } = await publicClient.simulateContract({
         address: CONTRACT_ADDRESSES.TOKEN_FACTORY as `0x${string}`,
         abi: TOKEN_FACTORY_ABI,
         functionName: 'createToken',
-        args: [form.name, form.symbol, form.description, form.imageUrl],
+        args: [form.name.trim(), form.symbol.trim().toUpperCase(), form.description.trim(), form.imageUrl.trim()],
         value: parseEther('0.001'), // 0.001 ETH creation fee
         account: walletClient.account,
       })
 
+      // Execute the transaction
       const hash = await walletClient.writeContract(request)
 
-      // Wait for transaction confirmation
-      const receipt = await publicClient.waitForTransactionReceipt({ hash })
+      addNotification({
+        type: 'info',
+        title: 'Transaction Submitted',
+        message: `Hash: ${hash.slice(0, 10)}...${hash.slice(-8)}`,
+        duration: 5000
+      })
+
+      // Wait for transaction confirmation with timeout
+      const receipt = await Promise.race([
+        publicClient.waitForTransactionReceipt({ hash }),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Transaction confirmation timeout')), 60000)
+        )
+      ]) as any
 
       if (receipt.status === 'success') {
-        setSuccess(`Token created successfully! Transaction: ${hash}`)
+        const endTime = performance.now()
+
+        // Track successful token creation
+        trackUserAction({
+          action: 'token_created',
+          transactionHash: hash,
+          userAddress: address || undefined,
+          metadata: {
+            tokenName: form.name,
+            tokenSymbol: form.symbol,
+            hasDescription: !!form.description,
+            hasImage: !!form.imageUrl,
+            creationTime: endTime - startTime
+          }
+        })
+
+        // Track performance
+        trackPerformance('token_creation_time', endTime - startTime, {
+          success: true,
+          gasUsed: receipt.gasUsed?.toString()
+        })
+
+        addNotification({
+          type: 'success',
+          title: '🎉 Token Created Successfully!',
+          message: `${form.name} is now live on the bonding curve and ready for trading`,
+          duration: 10000
+        })
         setForm({ name: '', symbol: '', description: '', imageUrl: '' })
+        setError(null)
+        setSuccess(`Token created! Transaction: ${hash}`)
       } else {
-        setError('Transaction failed')
+        const endTime = performance.now()
+
+        // Track failed transaction
+        trackPerformance('token_creation_time', endTime - startTime, {
+          success: false,
+          reason: 'transaction_reverted'
+        })
+
+        addNotification({
+          type: 'error',
+          title: 'Transaction Failed',
+          message: 'Transaction was reverted. Check the explorer for details.'
+        })
+        setError('Transaction failed. Please check the transaction on the explorer for more details.')
       }
     } catch (err: any) {
       console.error('Error creating token:', err)
-      setError(err.message || 'Failed to create token')
+      const endTime = performance.now()
+      const errorMessage = parseContractError(err)
+
+      // Track error
+      trackError(err, {
+        context: 'token_creation',
+        formData: form,
+        userAddress: address?.slice(0, 10)
+      })
+
+      // Track failed performance
+      trackPerformance('token_creation_time', endTime - startTime, {
+        success: false,
+        error: errorMessage
+      })
+
+      addNotification({
+        type: 'error',
+        title: 'Token Creation Failed',
+        message: errorMessage,
+        duration: 10000
+      })
+      setError(errorMessage)
     } finally {
       setIsCreating(false)
     }
