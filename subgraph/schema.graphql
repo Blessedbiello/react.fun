@@ -1,0 +1,284 @@
+# Spawn.fun Subgraph Schema
+# GraphQL schema for indexing Somnia Network events
+
+# Token Factory Entity
+type TokenFactory @entity {
+  id: Bytes!
+  platform: Bytes!
+  tokenCount: BigInt!
+  totalVolume: BigInt!
+  totalFeesCollected: BigInt!
+  tokenImplementation: Bytes!
+  bondingCurveImplementation: Bytes!
+  createdAt: BigInt!
+  updatedAt: BigInt!
+  tokens: [Token!]! @derivedFrom(field: "factory")
+}
+
+# Launch Token Entity
+type Token @entity {
+  id: Bytes! # token address
+  factory: TokenFactory!
+  name: String!
+  symbol: String!
+  description: String!
+  imageUrl: String!
+  creator: Bytes!
+  bondingCurve: BondingCurve!
+  totalSupply: BigInt!
+  creationTime: BigInt!
+  createdAt: BigInt!
+
+  # Trading statistics
+  totalTrades: BigInt!
+  totalVolume: BigInt!
+  currentPrice: BigInt!
+  marketCap: BigInt!
+  holders: BigInt!
+
+  # Curve status
+  migrated: Boolean!
+  migrationTx: Bytes
+  migrationBlock: BigInt
+  liquidityPair: Bytes
+
+  # Relations
+  trades: [Trade!]! @derivedFrom(field: "token")
+  holders: [TokenHolder!]! @derivedFrom(field: "token")
+  priceHistory: [PricePoint!]! @derivedFrom(field: "token")
+}
+
+# Bonding Curve Entity
+type BondingCurve @entity {
+  id: Bytes! # bonding curve address
+  token: Token!
+  creator: Bytes!
+
+  # Curve parameters
+  virtualETH: BigInt!
+  virtualTokens: BigInt!
+  totalSupply: BigInt!
+  progress: BigInt! # in basis points (0-10000)
+
+  # State
+  migrated: Boolean!
+  paused: Boolean!
+
+  # Statistics
+  totalTrades: BigInt!
+  totalVolume: BigInt!
+  totalFees: BigInt!
+
+  # Timestamps
+  createdAt: BigInt!
+  updatedAt: BigInt!
+
+  # Relations
+  trades: [Trade!]! @derivedFrom(field: "bondingCurve")
+}
+
+# Trading Activity Entity
+type Trade @entity {
+  id: Bytes! # transaction hash + log index
+  token: Token!
+  bondingCurve: BondingCurve!
+  trader: Bytes!
+  type: TradeType!
+
+  # Trade details
+  ethAmount: BigInt!
+  tokenAmount: BigInt!
+  price: BigInt! # price per token at time of trade
+  platformFee: BigInt!
+  creatorFee: BigInt
+
+  # Context
+  block: BigInt!
+  timestamp: BigInt!
+  transactionHash: Bytes!
+  gasUsed: BigInt
+  gasPrice: BigInt
+
+  # Market data at time of trade
+  marketCapBefore: BigInt!
+  marketCapAfter: BigInt!
+  totalSupplyBefore: BigInt!
+  totalSupplyAfter: BigInt!
+}
+
+enum TradeType {
+  BUY
+  SELL
+}
+
+# Token Holder Entity
+type TokenHolder @entity {
+  id: Bytes! # token address + holder address
+  token: Token!
+  holder: Bytes!
+  balance: BigInt!
+
+  # Trading history
+  totalBought: BigInt!
+  totalSold: BigInt!
+  totalTrades: BigInt!
+  averagePrice: BigInt!
+  realizedPnL: BigInt!
+
+  # Timestamps
+  firstTradeAt: BigInt!
+  lastTradeAt: BigInt!
+
+  # Relations
+  trades: [Trade!]! @derivedFrom(field: "trader")
+}
+
+# Price History for Charts
+type PricePoint @entity {
+  id: Bytes! # token address + timestamp (rounded to interval)
+  token: Token!
+  timestamp: BigInt!
+  price: BigInt!
+  volume: BigInt!
+  trades: BigInt!
+  interval: PriceInterval!
+
+  # OHLC data
+  open: BigInt!
+  high: BigInt!
+  low: BigInt!
+  close: BigInt!
+
+  # Market data
+  marketCap: BigInt!
+  totalSupply: BigInt!
+}
+
+enum PriceInterval {
+  MINUTE_1
+  MINUTE_5
+  MINUTE_15
+  HOUR_1
+  HOUR_4
+  DAY_1
+}
+
+# Migration Event Entity
+type CurveMigration @entity {
+  id: Bytes! # transaction hash
+  token: Token!
+  bondingCurve: BondingCurve!
+
+  # Migration details
+  finalPrice: BigInt!
+  liquidityETH: BigInt!
+  liquidityTokens: BigInt!
+  liquidityPair: Bytes!
+
+  # Context
+  block: BigInt!
+  timestamp: BigInt!
+  transactionHash: Bytes!
+}
+
+# Daily Statistics Entity
+type DailyStats @entity {
+  id: Bytes! # date (YYYY-MM-DD)
+  date: String!
+
+  # Token creation
+  tokensCreated: BigInt!
+  totalTokens: BigInt!
+
+  # Trading activity
+  trades: BigInt!
+  volume: BigInt!
+  fees: BigInt!
+  uniqueTraders: BigInt!
+
+  # Migrations
+  migrations: BigInt!
+  totalMigrations: BigInt!
+
+  # Network stats
+  gasUsed: BigInt!
+  averageGasPrice: BigInt!
+
+  # Price ranges
+  highestPrice: BigInt!
+  lowestPrice: BigInt!
+  averagePrice: BigInt!
+}
+
+# User Activity Summary
+type UserStats @entity {
+  id: Bytes! # user address
+  user: Bytes!
+
+  # Token creation
+  tokensCreated: BigInt!
+  tokenCreationFees: BigInt!
+
+  # Trading activity
+  totalTrades: BigInt!
+  totalVolume: BigInt!
+  totalFees: BigInt!
+
+  # Holdings
+  tokensHeld: BigInt!
+  totalValue: BigInt!
+  realizedPnL: BigInt!
+  unrealizedPnL: BigInt!
+
+  # Timestamps
+  firstActivityAt: BigInt!
+  lastActivityAt: BigInt!
+
+  # Relations
+  createdTokens: [Token!]! @derivedFrom(field: "creator")
+  holdings: [TokenHolder!]! @derivedFrom(field: "holder")
+  trades: [Trade!]! @derivedFrom(field: "trader")
+}
+
+# Platform Analytics
+type PlatformStats @entity {
+  id: Bytes! # singleton entity
+
+  # Overall metrics
+  totalTokens: BigInt!
+  totalTrades: BigInt!
+  totalVolume: BigInt!
+  totalFees: BigInt!
+  totalUsers: BigInt!
+  totalMigrations: BigInt!
+
+  # Current state
+  activeTokens: BigInt!
+  dailyActiveUsers: BigInt!
+
+  # Top performers
+  highestVolumeToken: Bytes
+  highestPriceToken: Bytes
+  mostTradedToken: Bytes
+
+  # Updated timestamp
+  lastUpdated: BigInt!
+}
+
+# Network Configuration Tracking
+type NetworkConfig @entity {
+  id: Bytes! # network config hash
+  chainId: BigInt!
+  networkName: String!
+  somniaRouter: Bytes!
+  somniaFactory: Bytes!
+  weth: Bytes!
+  platformFeeBps: BigInt!
+  creationFee: BigInt!
+  rateLimitSeconds: BigInt!
+
+  # Tracking
+  updatedAt: BigInt!
+  updatedBy: Bytes!
+  updateTx: Bytes!
+}

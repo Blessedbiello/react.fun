@@ -1,0 +1,438 @@
+name: Spawn.fun CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  FOUNDRY_PROFILE: ci
+
+jobs:
+  # Contracts Testing
+  contracts-test:
+    name: Test Smart Contracts
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./contracts
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+
+      - name: Install dependencies
+        run: forge install
+
+      - name: Check formatting
+        run: forge fmt --check
+
+      - name: Run tests
+        run: forge test -vvv
+
+      - name: Generate gas report
+        run: forge test --gas-report
+
+      - name: Check contract sizes
+        run: forge build --sizes
+
+      - name: Run static analysis with Slither
+        uses: crytic/slither-action@v0.3.0
+        id: slither
+        with:
+          target: contracts/
+          slither-config: contracts/slither.config.json
+        continue-on-error: true
+
+      - name: Upload Slither results
+        uses: github/codeql-action/upload-sarif@v2
+        if: steps.slither.outputs.sarif != ''
+        with:
+          sarif_file: ${{ steps.slither.outputs.sarif }}
+
+  # Security Audit
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    needs: contracts-test
+    defaults:
+      run:
+        working-directory: ./contracts
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Install dependencies
+        run: forge install
+
+      - name: Run Mythril analysis
+        uses: mythx/mythx-cli-action@v1
+        with:
+          mythx-api-key: ${{ secrets.MYTHX_API_KEY }}
+          target: contracts/src/
+        continue-on-error: true
+
+      - name: Run Echidna fuzzing
+        run: |
+          docker run --rm -v $PWD:/src trailofbits/echidna:latest \
+            echidna-test /src/test/fuzz/TokenFactoryFuzz.sol --contract TokenFactoryFuzz
+        continue-on-error: true
+
+  # Frontend Testing
+  frontend-test:
+    name: Test Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run TypeScript check
+        run: npm run type-check
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run unit tests
+        run: npm run test
+
+      - name: Run E2E tests
+        run: npm run test:e2e
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ~/.cache/playwright
+
+      - name: Build application
+        run: npm run build
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./frontend/coverage/lcov.info
+          flags: frontend
+
+  # Subgraph Testing
+  subgraph-test:
+    name: Test Subgraph
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./subgraph
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: subgraph/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate code
+        run: npm run codegen
+
+      - name: Build subgraph
+        run: npm run build
+
+      - name: Run subgraph tests
+        run: npm run test
+
+  # Integration Testing
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [contracts-test, frontend-test, subgraph-test]
+
+    services:
+      hardhat:
+        image: node:20
+        ports:
+          - 8545:8545
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Start local blockchain
+        run: |
+          cd contracts
+          forge install
+          anvil --port 8545 --host 0.0.0.0 &
+          sleep 5
+
+      - name: Deploy contracts to local network
+        run: |
+          cd contracts
+          ./deploy.sh -n local --no-verify
+        env:
+          PRIVATE_KEY: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+
+      - name: Run integration tests
+        run: |
+          cd frontend
+          npm ci
+          npm run test:integration
+        env:
+          NEXT_PUBLIC_CHAIN_ID: 31337
+          NEXT_PUBLIC_RPC_URL: http://localhost:8545
+
+  # Performance Testing
+  performance-test:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    needs: integration-test
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Run Lighthouse CI
+        uses: treosh/lighthouse-ci-action@v10
+        with:
+          configPath: './frontend/.lighthouserc.json'
+          uploadArtifacts: true
+          temporaryPublicStorage: true
+
+      - name: Run load tests
+        run: |
+          npm install -g artillery
+          artillery run ./tests/load-test.yml
+        continue-on-error: true
+
+  # Contract Deployment (Testnet)
+  deploy-testnet:
+    name: Deploy to Somnia Testnet
+    runs-on: ubuntu-latest
+    needs: [security-audit, integration-test]
+    if: github.ref == 'refs/heads/develop'
+    environment: testnet
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Install dependencies
+        run: |
+          cd contracts
+          forge install
+
+      - name: Deploy to Somnia testnet
+        run: |
+          cd contracts
+          ./deploy.sh -n somnia-testnet -e staging
+        env:
+          PRIVATE_KEY: ${{ secrets.TESTNET_PRIVATE_KEY }}
+          SOMNIA_TESTNET_RPC_URL: ${{ secrets.SOMNIA_TESTNET_RPC_URL }}
+
+      - name: Update subgraph config
+        run: |
+          cd subgraph
+          # Update testnet.json with deployed addresses
+          FACTORY_ADDRESS=$(cat ../contracts/deployments/somnia-testnet-50311.json | jq -r '.TokenFactory')
+          jq --arg addr "$FACTORY_ADDRESS" '.factoryAddress = $addr' config/testnet.json > tmp.json
+          mv tmp.json config/testnet.json
+
+      - name: Deploy subgraph to testnet
+        run: |
+          cd subgraph
+          npm ci
+          npm run prepare:testnet
+          npm run deploy:testnet
+        env:
+          GRAPH_AUTH_TOKEN: ${{ secrets.GRAPH_AUTH_TOKEN }}
+
+  # Frontend Deployment (Staging)
+  deploy-frontend-staging:
+    name: Deploy Frontend to Staging
+    runs-on: ubuntu-latest
+    needs: deploy-testnet
+    if: github.ref == 'refs/heads/develop'
+    environment: staging
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Build for staging
+        run: |
+          cd frontend
+          npm run build
+        env:
+          NEXT_PUBLIC_CHAIN_ID: 50311
+          NEXT_PUBLIC_RPC_URL: ${{ secrets.SOMNIA_TESTNET_RPC_URL }}
+          NEXT_PUBLIC_FACTORY_ADDRESS: ${{ needs.deploy-testnet.outputs.factory_address }}
+
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          working-directory: ./frontend
+          scope: ${{ secrets.VERCEL_ORG_ID }}
+
+  # Production Deployment
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [performance-test]
+    if: github.ref == 'refs/heads/main'
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Deploy to Somnia mainnet
+        run: |
+          cd contracts
+          forge install
+          ./deploy.sh -n somnia-mainnet -e production
+        env:
+          PRIVATE_KEY: ${{ secrets.MAINNET_PRIVATE_KEY }}
+          SOMNIA_MAINNET_RPC_URL: ${{ secrets.SOMNIA_MAINNET_RPC_URL }}
+
+      - name: Deploy subgraph to mainnet
+        run: |
+          cd subgraph
+          npm ci
+          # Update mainnet config with deployed addresses
+          FACTORY_ADDRESS=$(cat ../contracts/deployments/somnia-mainnet-2648.json | jq -r '.TokenFactory')
+          jq --arg addr "$FACTORY_ADDRESS" '.factoryAddress = $addr' config/mainnet.json > tmp.json
+          mv tmp.json config/mainnet.json
+          npm run prepare:mainnet
+          npm run deploy:mainnet
+        env:
+          GRAPH_AUTH_TOKEN: ${{ secrets.GRAPH_AUTH_TOKEN }}
+
+      - name: Deploy frontend to production
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+        env:
+          NEXT_PUBLIC_CHAIN_ID: 2648
+          NEXT_PUBLIC_RPC_URL: ${{ secrets.SOMNIA_MAINNET_RPC_URL }}
+
+      - name: Deploy to Vercel Production
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: '--prod'
+          working-directory: ./frontend
+          scope: ${{ secrets.VERCEL_ORG_ID }}
+
+  # Monitoring Setup
+  setup-monitoring:
+    name: Setup Monitoring
+    runs-on: ubuntu-latest
+    needs: deploy-production
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup monitoring alerts
+        run: |
+          # Setup DataDog/Sentry monitoring
+          curl -X POST "https://api.datadoghq.com/api/v1/monitors" \
+            -H "Content-Type: application/json" \
+            -H "DD-API-KEY: ${{ secrets.DATADOG_API_KEY }}" \
+            -H "DD-APPLICATION-KEY: ${{ secrets.DATADOG_APP_KEY }}" \
+            -d @monitoring/datadog-monitors.json
+
+      - name: Create Sentry release
+        uses: getsentry/action-release@v1
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: spawn-fun
+        with:
+          environment: production
+          version: ${{ github.sha }}
+
+  # Notification
+  notify:
+    name: Notify Deployment
+    runs-on: ubuntu-latest
+    needs: [setup-monitoring]
+    if: always()
+
+    steps:
+      - name: Notify Slack
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          channel: '#deployments'
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+          fields: repo,message,commit,author,action,eventName,ref,workflow
+        if: always()
+
+      - name: Notify Discord
+        uses: Ilshidur/action-discord@master
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        with:
+          args: |
+            🚀 Spawn.fun deployment completed!
+            Status: ${{ job.status }}
+            Commit: ${{ github.sha }}
+            Branch: ${{ github.ref }}
+        if: always()

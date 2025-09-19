@@ -1,0 +1,102 @@
+specVersion: 0.0.5
+schema:
+  file: ./schema.graphql
+
+dataSources:
+  # TokenFactory Data Source
+  - kind: ethereum
+    name: TokenFactory
+    network: somnia-testnet  # Will be updated for different networks
+    source:
+      address: "0x0000000000000000000000000000000000000000"  # Will be replaced during deployment
+      abi: TokenFactory
+      startBlock: 0  # Will be set to deployment block
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      entities:
+        - TokenFactory
+        - Token
+        - BondingCurve
+        - DailyStats
+        - UserStats
+        - PlatformStats
+      abis:
+        - name: TokenFactory
+          file: ./abis/TokenFactory.json
+        - name: LaunchToken
+          file: ./abis/LaunchToken.json
+        - name: HyperBondingCurve
+          file: ./abis/HyperBondingCurve.json
+      eventHandlers:
+        - event: TokenCreated(indexed address,indexed address,indexed address,string,string,uint256)
+          handler: handleTokenCreated
+        - event: TokenMetadata(indexed address,string,string,indexed address)
+          handler: handleTokenMetadata
+        - event: FeesWithdrawn(indexed address,uint256)
+          handler: handleFeesWithdrawn
+      file: ./src/token-factory.ts
+
+templates:
+  # LaunchToken Template
+  - kind: ethereum/contract
+    name: LaunchToken
+    network: somnia-testnet
+    source:
+      abi: LaunchToken
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      entities:
+        - Token
+        - TokenHolder
+        - Trade
+      abis:
+        - name: LaunchToken
+          file: ./abis/LaunchToken.json
+      eventHandlers:
+        - event: Transfer(indexed address,indexed address,uint256)
+          handler: handleTransfer
+      file: ./src/launch-token.ts
+
+  # HyperBondingCurve Template
+  - kind: ethereum/contract
+    name: HyperBondingCurve
+    network: somnia-testnet
+    source:
+      abi: HyperBondingCurve
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.7
+      language: wasm/assemblyscript
+      entities:
+        - BondingCurve
+        - Trade
+        - Token
+        - TokenHolder
+        - PricePoint
+        - CurveMigration
+        - DailyStats
+        - UserStats
+        - PlatformStats
+      abis:
+        - name: HyperBondingCurve
+          file: ./abis/HyperBondingCurve.json
+        - name: LaunchToken
+          file: ./abis/LaunchToken.json
+      eventHandlers:
+        - event: TokenPurchase(indexed address,uint256,uint256,uint256)
+          handler: handleTokenPurchase
+        - event: TokenSale(indexed address,uint256,uint256,uint256)
+          handler: handleTokenSale
+        - event: CurveMigration(uint256,uint256,uint256,indexed address)
+          handler: handleCurveMigration
+        - event: EmergencyPause(indexed address,uint256)
+          handler: handleEmergencyPause
+        - event: EmergencyUnpause(indexed address,uint256)
+          handler: handleEmergencyUnpause
+        - event: NetworkConfigUpdated(string,address,address)
+          handler: handleNetworkConfigUpdated
+      file: ./src/bonding-curve.ts

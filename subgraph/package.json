@@ -1,0 +1,46 @@
+{
+  "name": "spawn-fun-subgraph",
+  "version": "1.0.0",
+  "description": "Subgraph for spawn.fun token launch platform on Somnia Network",
+  "main": "index.js",
+  "scripts": {
+    "codegen": "graph codegen",
+    "build": "graph build",
+    "auth": "graph auth --product hosted-service",
+    "deploy:testnet": "graph deploy --product hosted-service spawn-fun/spawn-testnet",
+    "deploy:mainnet": "graph deploy --product hosted-service spawn-fun/spawn-mainnet",
+    "create:local": "graph create spawn-fun/spawn-local --node http://localhost:8020",
+    "remove:local": "graph remove spawn-fun/spawn-local --node http://localhost:8020",
+    "deploy:local": "graph deploy spawn-fun/spawn-local --debug --ipfs http://localhost:5001 --node http://localhost:8020",
+    "test": "graph test",
+    "prepare:testnet": "mustache config/testnet.json subgraph.template.yaml > subgraph.yaml",
+    "prepare:mainnet": "mustache config/mainnet.json subgraph.template.yaml > subgraph.yaml",
+    "prepare:local": "mustache config/local.json subgraph.template.yaml > subgraph.yaml"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/spawn-fun/contracts"
+  },
+  "keywords": [
+    "spawn.fun",
+    "somnia",
+    "subgraph",
+    "blockchain",
+    "defi",
+    "tokens",
+    "bonding-curve"
+  ],
+  "author": "Spawn.fun Team",
+  "license": "MIT",
+  "dependencies": {
+    "@graphprotocol/graph-cli": "^0.56.0",
+    "@graphprotocol/graph-ts": "^0.31.0"
+  },
+  "devDependencies": {
+    "mustache": "^4.2.0",
+    "matchstick-as": "^0.5.2"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

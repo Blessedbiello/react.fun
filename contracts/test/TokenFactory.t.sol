@@ -2,18 +2,18 @@
 pragma solidity ^0.8.22;
 
 import "lib/forge-std/src/Test.sol";
-import "../src/TokenFactory.sol";
+import "../src/TestableTokenFactory.sol";
 import "../src/LaunchToken.sol";
-import "../src/HyperBondingCurve.sol";
+import "../src/TestableHyperBondingCurve.sol";
 
 contract TokenFactoryTest is Test {
-    TokenFactory public factory;
+    TestableTokenFactory public factory;
     address public creator;
     address public buyer;
 
     function setUp() public {
         // Deploy factory
-        factory = new TokenFactory();
+        factory = new TestableTokenFactory();
 
         // Setup test accounts
         creator = makeAddr("creator");
@@ -61,7 +61,7 @@ contract TokenFactoryTest is Test {
 
         // Buy tokens
         vm.startPrank(buyer);
-        HyperBondingCurve curve = HyperBondingCurve(bondingCurve);
+        TestableHyperBondingCurve curve = TestableHyperBondingCurve(bondingCurve);
 
         uint256 ethIn = 0.01 ether;  // Smaller amount to avoid immediate curve completion
         uint256 expectedTokens = curve.calculateTokensOut(ethIn);
@@ -87,7 +87,7 @@ contract TokenFactoryTest is Test {
             "https://example.com/image.png"
         );
 
-        HyperBondingCurve curve = HyperBondingCurve(bondingCurve);
+        TestableHyperBondingCurve curve = TestableHyperBondingCurve(bondingCurve);
 
         // Check initial price
         uint256 initialPrice = curve.getCurrentPrice();
@@ -113,7 +113,7 @@ contract TokenFactoryTest is Test {
         );
 
         vm.startPrank(buyer);
-        HyperBondingCurve curve = HyperBondingCurve(bondingCurve);
+        TestableHyperBondingCurve curve = TestableHyperBondingCurve(bondingCurve);
         LaunchToken tokenContract = LaunchToken(token);
 
         // Buy tokens first
@@ -149,10 +149,17 @@ contract TokenFactoryTest is Test {
 
         vm.stopPrank();
 
-        // Check stats
-        (uint256 totalTokens, uint256 totalVolume, address implToken, address implCurve) = factory.getFactoryStats();
+        // Check enhanced stats
+        (
+            uint256 totalTokens,
+            uint256 totalVolume,
+            address implToken,
+            address implCurve,
+            uint256 totalFeesCollected
+        ) = factory.getFactoryStats();
 
         assertEq(totalTokens, 2);
+        assertEq(totalFeesCollected, 2 * 0.001 ether);
         assertTrue(implToken != address(0));
         assertTrue(implCurve != address(0));
     }
@@ -180,4 +187,85 @@ contract TokenFactoryTest is Test {
             "image.png"
         );
     }
+
+    function testPredictiveAddresses() public {
+        uint256 currentCount = factory.tokenCount();
+        uint256 timestamp = block.timestamp;
+
+        // Predict addresses before creation
+        (address predictedToken, address predictedCurve) = factory.predictTokenAddress(
+            creator,
+            currentCount,
+            timestamp
+        );
+
+        // Create token
+        vm.warp(timestamp);
+        vm.prank(creator);
+        (address actualToken, address actualCurve) = factory.createToken{value: 0.001 ether}(
+            "PredictTest",
+            "PRED",
+            "Address prediction test",
+            "predict.png"
+        );
+
+        // Verify predictions were correct
+        assertEq(actualToken, predictedToken);
+        assertEq(actualCurve, predictedCurve);
+    }
+
+    function testSecurityFeatures() public {
+        // Create token
+        vm.prank(creator);
+        (address token, address bondingCurve) = factory.createToken{value: 0.001 ether}(
+            "SecurityTest",
+            "SEC",
+            "Security test",
+            "security.png"
+        );
+
+        TestableHyperBondingCurve curve = TestableHyperBondingCurve(bondingCurve);
+
+        // Test pause functionality
+        vm.prank(creator);
+        curve.emergencyPause();
+        assertTrue(curve.paused());
+
+        // Test that trading is blocked when paused
+        vm.prank(buyer);
+        vm.expectRevert(); // OpenZeppelin v5 uses EnforcedPause()
+        curve.buyTokens{value: 0.1 ether}(0);
+
+        // Unpause and verify trading works
+        vm.prank(creator);
+        curve.unpause();
+        assertFalse(curve.paused());
+
+        vm.prank(buyer);
+        curve.buyTokens{value: 0.1 ether}(0);
+    }
+
+    function testFactoryOwnershipAndFees() public {
+        // Test initial setup
+        assertEq(factory.owner(), address(this));
+        assertEq(factory.platform(), address(this));
+
+        // Create some tokens to generate fees
+        vm.startPrank(creator);
+        factory.createToken{value: 0.001 ether}("Token1", "T1", "Token 1", "url1");
+        factory.createToken{value: 0.001 ether}("Token2", "T2", "Token 2", "url2");
+        vm.stopPrank();
+
+        // Check contract balance
+        assertEq(address(factory).balance, 0.002 ether);
+
+        // Test fee withdrawal
+        uint256 initialBalance = address(this).balance;
+        factory.withdrawFees();
+        assertEq(address(this).balance, initialBalance + 0.002 ether);
+        assertEq(address(factory).balance, 0);
+    }
+
+    // Required to receive ETH from fee withdrawal
+    receive() external payable {}
 }

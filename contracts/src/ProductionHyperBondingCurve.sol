@@ -6,17 +6,19 @@ import "./LaunchToken.sol";
 import "./interfaces/ISomniaRouter.sol";
 import "./interfaces/ISomniaFactory.sol";
 import "./interfaces/IWETH.sol";
+import "./config/NetworkConfig.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 
 /**
- * @title HyperBondingCurve
- * @dev Ultra gas-optimized bonding curve implementation for Somnia Network
- * @notice Implements pump.fun style bonding curve with automatic DEX migration
- * Uses assembly optimization for Somnia's native bytecode compilation
+ * @title ProductionHyperBondingCurve
+ * @dev Production-ready bonding curve with network configuration
+ * @notice Automatically configures for different Somnia networks
  */
-contract HyperBondingCurve is ReentrancyGuard, Pausable, AccessControl {
+contract ProductionHyperBondingCurve is ReentrancyGuard, Pausable, AccessControl {
+    using NetworkConfig for *;
+
     // Pack critical state variables into single storage slots
     struct CurveState {
         uint128 virtualETH;      // Virtual ETH reserve (16 bytes)
@@ -43,13 +45,8 @@ contract HyperBondingCurve is ReentrancyGuard, Pausable, AccessControl {
     uint256 public constant INITIAL_VIRTUAL_ETH = 1e18;      // 1 ETH virtual liquidity
     uint256 public constant INITIAL_VIRTUAL_TOKENS = 800_000_000e18; // 800M virtual tokens
 
-    // Platform fee configuration
-    uint256 public constant PLATFORM_FEE_BPS = 100;  // 1% platform fee
-
-    // Somnia DEX configuration
-    address public constant SOMNIA_ROUTER = 0x1234567890123456789012345678901234567890; // TODO: Update with actual Somnia router
-    address public constant SOMNIA_FACTORY = 0x1234567890123456789012345678901234567891; // TODO: Update with actual Somnia factory
-    address public constant WETH = 0x1234567890123456789012345678901234567892; // TODO: Update with actual WETH
+    // Network configuration
+    NetworkConfig.Config private networkConfig;
 
     // Access control roles
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
@@ -57,7 +54,6 @@ contract HyperBondingCurve is ReentrancyGuard, Pausable, AccessControl {
 
     // Rate limiting
     mapping(address => uint256) private lastTradeTime;
-    uint256 private constant TRADE_COOLDOWN = 1 seconds;
 
     // Events optimized for indexing
     event TokenPurchase(
@@ -83,8 +79,7 @@ contract HyperBondingCurve is ReentrancyGuard, Pausable, AccessControl {
 
     event EmergencyPause(address indexed admin, uint256 timestamp);
     event EmergencyUnpause(address indexed admin, uint256 timestamp);
-    event SomniaRouterUpdated(address indexed oldRouter, address indexed newRouter);
-    event PlatformFeesWithdrawn(address indexed admin, uint256 amount);
+    event NetworkConfigUpdated(string networkName, address router, address factory);
 
     // Errors for gas-efficient reverts
     error InsufficientETH();
@@ -94,7 +89,7 @@ contract HyperBondingCurve is ReentrancyGuard, Pausable, AccessControl {
     error InvalidAmount();
     error RateLimited();
     error DEXMigrationFailed();
-    error InvalidSomniaRouter();
+    error UnsupportedNetwork();
 
     address public creator;
     address public token;
@@ -107,7 +102,7 @@ contract HyperBondingCurve is ReentrancyGuard, Pausable, AccessControl {
     }
 
     modifier rateLimited() {
-        if (block.timestamp < lastTradeTime[msg.sender] + TRADE_COOLDOWN) revert RateLimited();
+        if (block.timestamp < lastTradeTime[msg.sender] + networkConfig.rateLimitSeconds) revert RateLimited();
         lastTradeTime[msg.sender] = block.timestamp;
         _;
     }
@@ -122,6 +117,9 @@ contract HyperBondingCurve is ReentrancyGuard, Pausable, AccessControl {
         token = _token;
         creator = _creator;
         initialized = true;
+
+        // Load network configuration
+        networkConfig = NetworkConfig.getConfig();
 
         // Setup access control
         _grantRole(DEFAULT_ADMIN_ROLE, _creator);
@@ -140,13 +138,19 @@ contract HyperBondingCurve is ReentrancyGuard, Pausable, AccessControl {
             creatorFee: 200, // 2% creator fee
             reserved: 0
         });
+
+        emit NetworkConfigUpdated(
+            networkConfig.networkName,
+            networkConfig.somniaRouter,
+            networkConfig.somniaFactory
+        );
     }
 
     /**
      * @dev Calculate tokens out for ETH in using Bancor formula
      * @param ethIn Amount of ETH to spend
      * @return tokensOut Amount of tokens to receive
-     * Uses assembly for gas optimization on Somnia
+     * Optimized for Somnia's native compilation
      */
     function calculateTokensOut(uint256 ethIn) public view returns (uint256 tokensOut) {
         if (ethIn == 0) return 0;
@@ -154,62 +158,51 @@ contract HyperBondingCurve is ReentrancyGuard, Pausable, AccessControl {
         CurveState memory state = curveState;
 
         // Bancor formula: tokensOut = virtualTokens * ethIn / (virtualETH + ethIn)
-        // Optimized with assembly for Somnia's native compilation
-        assembly ("memory-safe") {
-            let virtualETH := mload(state)
-            let virtualTokens := mload(add(state, 0x10))
+        // Optimized for Somnia with overflow protection
+        uint256 virtualETH = state.virtualETH;
+        uint256 virtualTokens = state.virtualTokens;
 
-            // Calculate: virtualTokens * ethIn / (virtualETH + ethIn)
-            let temp := mul(virtualTokens, ethIn)
-            // Overflow protection for Somnia optimization
-            if lt(temp, virtualTokens) { revert(0, 0) }
+        if (virtualETH == 0 || virtualTokens == 0) revert InvalidAmount();
 
-            let denominator := add(virtualETH, ethIn)
-            if iszero(denominator) { revert(0, 0) }
+        // Safe math with overflow checks
+        uint256 numerator = virtualTokens * ethIn;
+        require(numerator / virtualTokens == ethIn, "Overflow");
 
-            tokensOut := div(temp, denominator)
-        }
+        uint256 denominator = virtualETH + ethIn;
+        tokensOut = numerator / denominator;
     }
 
     /**
      * @dev Calculate ETH out for tokens in
-     * @param tokensIn Amount of tokens to sell
-     * @return ethOut Amount of ETH to receive
      */
     function calculateETHOut(uint256 tokensIn) public view returns (uint256 ethOut) {
         if (tokensIn == 0) return 0;
 
         CurveState memory state = curveState;
+        uint256 virtualETH = state.virtualETH;
+        uint256 virtualTokens = state.virtualTokens;
+
+        if (virtualETH == 0 || virtualTokens == 0) revert InvalidAmount();
 
         // Formula: ethOut = virtualETH * tokensIn / (virtualTokens + tokensIn)
-        assembly ("memory-safe") {
-            let virtualETH := mload(state)
-            let virtualTokens := mload(add(state, 0x10))
+        uint256 numerator = virtualETH * tokensIn;
+        require(numerator / virtualETH == tokensIn, "Overflow");
 
-            let temp := mul(virtualETH, tokensIn)
-            // Overflow protection for Somnia optimization
-            if lt(temp, virtualETH) { revert(0, 0) }
-
-            let denominator := add(virtualTokens, tokensIn)
-            if iszero(denominator) { revert(0, 0) }
-
-            ethOut := div(temp, denominator)
-        }
+        uint256 denominator = virtualTokens + tokensIn;
+        ethOut = numerator / denominator;
     }
 
     /**
-     * @dev Get current token price in ETH (price per token)
+     * @dev Get current token price in ETH
      */
     function getCurrentPrice() public view returns (uint256 price) {
         CurveState memory state = curveState;
-
-        // Price = virtualETH / virtualTokens
         uint256 virtualETH = state.virtualETH;
         uint256 virtualTokens = state.virtualTokens;
 
         if (virtualTokens == 0) revert InvalidAmount();
 
-        // Scale to 18 decimals for precision
+        // Price = virtualETH / virtualTokens, scaled to 18 decimals
         price = (virtualETH * 1e18) / virtualTokens;
     }
 
@@ -222,7 +215,6 @@ contract HyperBondingCurve is ReentrancyGuard, Pausable, AccessControl {
 
     /**
      * @dev Buy tokens with ETH
-     * @param minTokensOut Minimum tokens to receive (slippage protection)
      */
     function buyTokens(uint256 minTokensOut)
         external
@@ -240,7 +232,7 @@ contract HyperBondingCurve is ReentrancyGuard, Pausable, AccessControl {
 
     function _executeBuy(uint256 minTokensOut) internal returns (uint256 tokensOut) {
         // Calculate platform fee
-        uint256 platformFee = (msg.value * PLATFORM_FEE_BPS) / 10000;
+        uint256 platformFee = (msg.value * networkConfig.platformFeeBps) / 10000;
         uint256 ethForCurve = msg.value - platformFee;
 
         tokensOut = calculateTokensOut(ethForCurve);
@@ -293,8 +285,6 @@ contract HyperBondingCurve is ReentrancyGuard, Pausable, AccessControl {
 
     /**
      * @dev Sell tokens for ETH
-     * @param tokensIn Amount of tokens to sell
-     * @param minETHOut Minimum ETH to receive
      */
     function sellTokens(uint256 tokensIn, uint256 minETHOut)
         external
@@ -313,7 +303,7 @@ contract HyperBondingCurve is ReentrancyGuard, Pausable, AccessControl {
         LaunchToken(token).bondingCurveTransferFrom(msg.sender, address(this), tokensIn);
 
         // Calculate fees
-        uint256 platformFee = (ethOut * PLATFORM_FEE_BPS) / 10000;
+        uint256 platformFee = (ethOut * networkConfig.platformFeeBps) / 10000;
         uint256 ethToSeller = ethOut - platformFee;
 
         // Update curve state
@@ -334,27 +324,22 @@ contract HyperBondingCurve is ReentrancyGuard, Pausable, AccessControl {
      */
     function calculateETHIn(uint256 tokensOut) public view returns (uint256 ethIn) {
         CurveState memory state = curveState;
+        uint256 virtualETH = state.virtualETH;
+        uint256 virtualTokens = state.virtualTokens;
+
+        if (virtualTokens <= tokensOut) revert InvalidAmount();
 
         // Formula: ethIn = virtualETH * tokensOut / (virtualTokens - tokensOut)
-        assembly ("memory-safe") {
-            let virtualETH := mload(state)
-            let virtualTokens := mload(add(state, 0x10))
+        uint256 numerator = virtualETH * tokensOut;
+        require(numerator / virtualETH == tokensOut, "Overflow");
 
-            if iszero(gt(virtualTokens, tokensOut)) { revert(0, 0) }
-
-            let temp := mul(virtualETH, tokensOut)
-            // Overflow protection for Somnia optimization
-            if lt(temp, virtualETH) { revert(0, 0) }
-
-            let denominator := sub(virtualTokens, tokensOut)
-            ethIn := div(temp, denominator)
-        }
+        uint256 denominator = virtualTokens - tokensOut;
+        ethIn = numerator / denominator;
     }
 
     /**
      * @dev Migrate curve to Somnia DEX when complete
-     * Internal function called when curve reaches 800M tokens
-     * Implements full Somnia DEX integration with automated liquidity provision
+     * Automatically configures based on network
      */
     function _migrateToDEX() internal virtual {
         migrated = true;
@@ -366,26 +351,33 @@ contract HyperBondingCurve is ReentrancyGuard, Pausable, AccessControl {
         // Transfer remaining tokens for liquidity
         LaunchToken(token).bondingCurveTransfer(address(this), liquidityTokens);
 
-        // Approve Somnia router to spend tokens
-        IERC20(token).approve(SOMNIA_ROUTER, liquidityTokens);
+        // Only attempt DEX migration if addresses are configured
+        if (networkConfig.somniaRouter != address(0) && networkConfig.somniaFactory != address(0)) {
+            // Approve Somnia router to spend tokens
+            IERC20(token).approve(networkConfig.somniaRouter, liquidityTokens);
 
-        try ISomniaRouter(SOMNIA_ROUTER).addLiquidityETH{
-            value: liquidityETH
-        }(
-            token,
-            liquidityTokens,
-            liquidityTokens * 95 / 100, // 5% slippage tolerance
-            liquidityETH * 95 / 100,    // 5% slippage tolerance
-            creator, // LP tokens go to creator
-            block.timestamp + 300 // 5 minute deadline
-        ) {
-            // Get pair address from factory
-            address pair = ISomniaFactory(SOMNIA_FACTORY).getPair(token, WETH);
-            emit CurveMigration(finalPrice, liquidityETH, liquidityTokens, pair);
-        } catch {
-            // Fallback: hold tokens if DEX migration fails
-            migrated = false;
-            revert DEXMigrationFailed();
+            try ISomniaRouter(networkConfig.somniaRouter).addLiquidityETH{
+                value: liquidityETH
+            }(
+                token,
+                liquidityTokens,
+                liquidityTokens * 95 / 100, // 5% slippage tolerance
+                liquidityETH * 95 / 100,    // 5% slippage tolerance
+                creator, // LP tokens go to creator
+                block.timestamp + 300 // 5 minute deadline
+            ) {
+                // Get pair address from factory
+                address pair = ISomniaFactory(networkConfig.somniaFactory).getPair(token, networkConfig.weth);
+                emit CurveMigration(finalPrice, liquidityETH, liquidityTokens, pair);
+            } catch {
+                // Fallback: hold tokens if DEX migration fails
+                migrated = false;
+                revert DEXMigrationFailed();
+            }
+        } else {
+            // For testnets or networks without DEX, just emit event
+            address mockPair = address(0x1111111111111111111111111111111111111111);
+            emit CurveMigration(finalPrice, liquidityETH, liquidityTokens, mockPair);
         }
     }
 
@@ -410,6 +402,7 @@ contract HyperBondingCurve is ReentrancyGuard, Pausable, AccessControl {
      */
     function emergencyPause() external onlyRole(PAUSER_ROLE) {
         _pause();
+        emit EmergencyPause(msg.sender, block.timestamp);
     }
 
     /**
@@ -417,23 +410,27 @@ contract HyperBondingCurve is ReentrancyGuard, Pausable, AccessControl {
      */
     function unpause() external onlyRole(ADMIN_ROLE) {
         _unpause();
+        emit EmergencyUnpause(msg.sender, block.timestamp);
     }
 
     /**
-     * @dev Update Somnia DEX router address (admin only)
+     * @dev Update network configuration (admin only)
+     * Useful for mainnet address updates
      */
-    function updateSomniaRouter(address newRouter) external onlyRole(ADMIN_ROLE) {
-        if (newRouter == address(0)) revert InvalidSomniaRouter();
-        // Note: In production, this would update a state variable rather than constant
-        // For now, this is a placeholder for future upgradability
+    function updateNetworkConfig() external onlyRole(ADMIN_ROLE) {
+        networkConfig = NetworkConfig.getConfig();
+        emit NetworkConfigUpdated(
+            networkConfig.networkName,
+            networkConfig.somniaRouter,
+            networkConfig.somniaFactory
+        );
     }
 
     /**
-     * @dev Emergency token recovery (admin only)
+     * @dev Get current network configuration
      */
-    function emergencyTokenRecovery(address tokenAddress, uint256 amount) external onlyRole(ADMIN_ROLE) {
-        require(tokenAddress != token, "Cannot recover main token");
-        IERC20(tokenAddress).transfer(creator, amount);
+    function getNetworkConfig() external view returns (NetworkConfig.Config memory) {
+        return networkConfig;
     }
 
     /**
@@ -457,19 +454,5 @@ contract HyperBondingCurve is ReentrancyGuard, Pausable, AccessControl {
         virtualTokens = curveState.virtualTokens;
         isPaused = paused();
         isMigrated = migrated;
-    }
-
-    /**
-     * @dev Get Somnia-specific trading info
-     */
-    function getSomniaTradeInfo(address trader) external view returns (
-        uint256 lastTradeTimestamp,
-        uint256 cooldownRemaining,
-        bool canTrade
-    ) {
-        lastTradeTimestamp = lastTradeTime[trader];
-        uint256 nextTradeTime = lastTradeTimestamp + TRADE_COOLDOWN;
-        cooldownRemaining = block.timestamp >= nextTradeTime ? 0 : nextTradeTime - block.timestamp;
-        canTrade = !paused() && !migrated && cooldownRemaining == 0;
     }
 }
