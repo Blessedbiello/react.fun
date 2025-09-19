@@ -2,6 +2,12 @@
 
 **spawn.fun** is a next-generation token launch platform built on Somnia Network, combining the viral mechanics of pump.fun with the lightning-fast performance of a 1M+ TPS blockchain.
 
+## 🎨 **Dashboard Preview**
+
+![spawn.fun Dashboard](./sample.png)
+
+*Experience the future of token launches with our sleek, professional interface featuring real-time trading, analytics, and seamless wallet integration.*
+
 ## 🌐 **Live on Somnia Network**
 
 - **Testnet**: Chain ID `50312` - [Shannon Explorer](https://shannon-explorer.somnia.network/)

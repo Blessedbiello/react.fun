@@ -3,16 +3,18 @@
 import { useWallet } from '@/lib/useWallet'
 import { useNotifications } from './NotificationSystem'
 import { useAnalytics } from '@/lib/analytics'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 export function WalletButton() {
   const { isConnected, address, isConnecting, error, connectWallet, disconnectWallet } = useWallet()
   const { addNotification } = useNotifications()
   const { trackUserAction, trackError } = useAnalytics()
+  const notificationShownRef = useRef(false)
+  const lastAddressRef = useRef<string | null>(null)
 
   // Show notification when wallet connection state changes
   useEffect(() => {
-    if (isConnected && address) {
+    if (isConnected && address && !notificationShownRef.current && lastAddressRef.current !== address) {
       // Track wallet connection
       trackUserAction({
         action: 'wallet_connected',
@@ -28,6 +30,15 @@ export function WalletButton() {
         message: `Connected to ${address.slice(0, 6)}...${address.slice(-4)}`,
         duration: 4000
       })
+
+      notificationShownRef.current = true
+      lastAddressRef.current = address
+    }
+
+    // Reset the flag when wallet is disconnected
+    if (!isConnected) {
+      notificationShownRef.current = false
+      lastAddressRef.current = null
     }
   }, [isConnected, address, addNotification, trackUserAction])
 

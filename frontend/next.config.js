@@ -1,9 +1,4 @@
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
-  experimental: {
-    optimizeCss: true,
-  },
+const nextConfig = {
   images: {
     domains: [
       'api.dicebear.com',
@@ -40,4 +35,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+module.exports = nextConfig;
