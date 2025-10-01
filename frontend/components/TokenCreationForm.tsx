@@ -5,6 +5,7 @@ import { parseEther, formatEther } from 'ethers'
 import { toast } from 'sonner'
 import { useSomniaReadContract, useSomniaWriteContract } from '../hooks/useSomniaContract'
 import { TokenFactoryABI } from '../abis'
+import { supportedChains, chainMetadata } from '../lib/reactive-config'
 
 const FACTORY_ADDRESS = process.env.NEXT_PUBLIC_FACTORY_ADDRESS || '0x0000000000000000000000000000000000000000'
 
@@ -13,6 +14,7 @@ interface TokenFormData {
   symbol: string
   description: string
   imageUrl: string
+  selectedChains: number[]
 }
 
 interface TokenCreationFormProps {
@@ -25,7 +27,8 @@ export function TokenCreationForm({ onTokenCreated }: TokenCreationFormProps) {
     name: '',
     symbol: '',
     description: '',
-    imageUrl: ''
+    imageUrl: '',
+    selectedChains: [supportedChains[0].id] // Default to first chain
   })
   const [isCreating, setIsCreating] = useState(false)
   const [previewMode, setPreviewMode] = useState(false)
@@ -55,8 +58,32 @@ export function TokenCreationForm({ onTokenCreated }: TokenCreationFormProps) {
       formData.name.trim().length >= 2 &&
       formData.symbol.trim().length >= 2 &&
       formData.description.trim().length >= 10 &&
-      formData.imageUrl.trim().length > 0
+      formData.imageUrl.trim().length > 0 &&
+      formData.selectedChains.length > 0
     )
+  }
+
+  // Handle chain selection
+  const toggleChain = (chainId: number) => {
+    setFormData(prev => {
+      const isSelected = prev.selectedChains.includes(chainId)
+      if (isSelected) {
+        // Don't allow deselecting if it's the only chain selected
+        if (prev.selectedChains.length === 1) {
+          toast.warning('At least one chain must be selected')
+          return prev
+        }
+        return {
+          ...prev,
+          selectedChains: prev.selectedChains.filter(id => id !== chainId)
+        }
+      } else {
+        return {
+          ...prev,
+          selectedChains: [...prev.selectedChains, chainId]
+        }
+      }
+    })
   }
 
   // Handle form submission
@@ -88,7 +115,8 @@ export function TokenCreationForm({ onTokenCreated }: TokenCreationFormProps) {
         name: '',
         symbol: '',
         description: '',
-        imageUrl: ''
+        imageUrl: '',
+        selectedChains: [supportedChains[0].id]
       })
       setPreviewMode(false)
 
@@ -124,8 +152,9 @@ export function TokenCreationForm({ onTokenCreated }: TokenCreationFormProps) {
     setFormData({
       name: fullName,
       symbol: symbol,
-      description: `${fullName} is a revolutionary token on the Spawn.fun platform, designed to bring innovation and value to the Somnia Network ecosystem.`,
-      imageUrl: `https://api.dicebear.com/7.x/shapes/svg?seed=${fullName.replace(' ', '')}&backgroundColor=random`
+      description: `${fullName} is a revolutionary token on the react.fun platform, designed to bring innovation and value to the multi-chain ecosystem.`,
+      imageUrl: `https://api.dicebear.com/7.x/shapes/svg?seed=${fullName.replace(' ', '')}&backgroundColor=random`,
+      selectedChains: [supportedChains[0].id]
     })
   }
 
@@ -133,19 +162,27 @@ export function TokenCreationForm({ onTokenCreated }: TokenCreationFormProps) {
     <div className="max-w-2xl mx-auto bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
       {/* Header */}
       <div className="bg-gradient-to-r from-blue-600 to-purple-600 px-8 py-6">
-        <h2 className="text-2xl font-bold text-white">Create Your Token</h2>
-        <p className="text-blue-100 mt-2">Launch your token on Somnia Network with Spawn.fun</p>
+        <h2 className="text-2xl font-bold text-white">Create Your Multi-Chain Token</h2>
+        <p className="text-blue-100 mt-2">Launch your token across multiple networks with unified pricing powered by react.fun</p>
       </div>
 
       {/* Creation Fee Display */}
       {creationFee && (
         <div className="bg-blue-50 px-8 py-4 border-b border-blue-200">
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-blue-800">Creation Fee:</span>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm text-blue-800">Base Creation Fee:</span>
             <span className="font-semibold text-blue-900">
               {formatEther(creationFee as bigint)} ETH
             </span>
           </div>
+          {formData.selectedChains.length > 1 && (
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm text-blue-800">Multi-Chain Deployment ({formData.selectedChains.length} chains):</span>
+              <span className="font-semibold text-blue-900">
+                {formatEther((creationFee as bigint) * BigInt(formData.selectedChains.length))} ETH
+              </span>
+            </div>
+          )}
           {platformFeeBps && (
             <div className="flex items-center justify-between mt-1">
               <span className="text-sm text-blue-800">Platform Fee:</span>
@@ -154,6 +191,15 @@ export function TokenCreationForm({ onTokenCreated }: TokenCreationFormProps) {
               </span>
             </div>
           )}
+          <div className="mt-3 pt-3 border-t border-blue-200">
+            <p className="text-xs text-blue-700">
+              Your token will be deployed to: {formData.selectedChains.map(chainId => {
+                const chain = supportedChains.find(c => c.id === chainId)
+                const metadata = chain ? chainMetadata[chainId as keyof typeof chainMetadata] : null
+                return metadata?.name
+              }).filter(Boolean).join(', ')}
+            </p>
+          </div>
         </div>
       )}
 
@@ -237,6 +283,56 @@ export function TokenCreationForm({ onTokenCreated }: TokenCreationFormProps) {
               </p>
             </div>
 
+            {/* Network Selection */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Target Networks * ({formData.selectedChains.length} selected)
+              </label>
+              <p className="text-xs text-gray-600 mb-3">
+                Select which networks your token will be deployed to. Token will have unified pricing across all selected chains.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                {supportedChains.map((chain) => {
+                  const metadata = chainMetadata[chain.id as keyof typeof chainMetadata]
+                  const isSelected = formData.selectedChains.includes(chain.id)
+
+                  return (
+                    <button
+                      key={chain.id}
+                      type="button"
+                      onClick={() => toggleChain(chain.id)}
+                      className={`p-4 rounded-lg border-2 transition-all ${
+                        isSelected
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-gray-300 bg-white hover:border-gray-400'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-2xl">{metadata.logo}</span>
+                          <div className="text-left">
+                            <div className="font-semibold text-gray-900">{metadata.name}</div>
+                            <div className="text-xs text-gray-500">{chain.name}</div>
+                          </div>
+                        </div>
+                        <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
+                          isSelected
+                            ? 'bg-blue-500 border-blue-500'
+                            : 'border-gray-300'
+                        }`}>
+                          {isSelected && (
+                            <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                            </svg>
+                          )}
+                        </div>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
             {/* Action Buttons */}
             <div className="flex space-x-4">
               <button
@@ -280,20 +376,46 @@ export function TokenCreationForm({ onTokenCreated }: TokenCreationFormProps) {
 
               <div className="mt-6 grid grid-cols-2 gap-4 text-sm">
                 <div className="bg-white p-3 rounded-lg">
-                  <p className="text-gray-600">Initial Supply</p>
+                  <p className="text-gray-600">Initial Supply (per chain)</p>
                   <p className="font-semibold">800,000,000 {formData.symbol}</p>
                 </div>
                 <div className="bg-white p-3 rounded-lg">
+                  <p className="text-gray-600">Total Deployment</p>
+                  <p className="font-semibold">{formData.selectedChains.length} Chain{formData.selectedChains.length > 1 ? 's' : ''}</p>
+                </div>
+                <div className="bg-white p-3 rounded-lg">
                   <p className="text-gray-600">Virtual Liquidity</p>
-                  <p className="font-semibold">1 ETH</p>
+                  <p className="font-semibold">1 {formData.selectedChains.length > 0 ? supportedChains.find(c => c.id === formData.selectedChains[0])?.nativeCurrency.symbol || 'ETH' : 'ETH'} per chain</p>
                 </div>
                 <div className="bg-white p-3 rounded-lg">
                   <p className="text-gray-600">Migration Goal</p>
-                  <p className="font-semibold">200,000,000 {formData.symbol}</p>
+                  <p className="font-semibold">200M {formData.symbol} per chain</p>
                 </div>
-                <div className="bg-white p-3 rounded-lg">
-                  <p className="text-gray-600">Platform Fee</p>
-                  <p className="font-semibold">1% per trade</p>
+              </div>
+
+              <div className="mt-4 bg-blue-50 rounded-lg p-3 text-sm">
+                <p className="text-blue-800 font-medium mb-1">🔗 Unified Pricing</p>
+                <p className="text-blue-700 text-xs">
+                  Prices are synchronized across all {formData.selectedChains.length} selected chain{formData.selectedChains.length > 1 ? 's' : ''} via Reactive Smart Contracts.
+                  Trade on any network with consistent pricing!
+                </p>
+              </div>
+
+              {/* Selected Networks Display */}
+              <div className="mt-4">
+                <p className="text-sm font-medium text-gray-700 mb-2">Deployment Networks:</p>
+                <div className="flex flex-wrap gap-2">
+                  {formData.selectedChains.map((chainId) => {
+                    const chain = supportedChains.find(c => c.id === chainId)
+                    const metadata = chain ? chainMetadata[chainId as keyof typeof chainMetadata] : null
+
+                    return metadata ? (
+                      <div key={chainId} className="flex items-center space-x-1 bg-white px-3 py-1.5 rounded-full border border-gray-300">
+                        <span>{metadata.logo}</span>
+                        <span className="text-sm font-medium text-gray-700">{metadata.name}</span>
+                      </div>
+                    ) : null
+                  })}
                 </div>
               </div>
             </div>
@@ -327,17 +449,26 @@ export function TokenCreationForm({ onTokenCreated }: TokenCreationFormProps) {
 
             {creationFee && (
               <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                <div className="flex items-center">
-                  <svg className="w-5 h-5 text-yellow-600 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                <div className="flex items-start">
+                  <svg className="w-5 h-5 text-yellow-600 mr-2 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                   </svg>
-                  <div>
+                  <div className="flex-1">
                     <p className="text-sm text-yellow-800 font-medium">
-                      Creation fee: {formatEther(creationFee as bigint)} ETH
+                      Total Creation Fee: {formatEther((creationFee as bigint) * BigInt(formData.selectedChains.length))} ETH
                     </p>
                     <p className="text-xs text-yellow-700 mt-1">
-                      This fee will be charged when you create the token
+                      {formData.selectedChains.length > 1
+                        ? `Deploying to ${formData.selectedChains.length} chains (${formatEther(creationFee as bigint)} ETH per chain)`
+                        : 'Single chain deployment'}
                     </p>
+                    <div className="mt-2 text-xs text-yellow-700">
+                      <strong>Networks:</strong> {formData.selectedChains.map(chainId => {
+                        const chain = supportedChains.find(c => c.id === chainId)
+                        const metadata = chain ? chainMetadata[chainId as keyof typeof chainMetadata] : null
+                        return metadata?.name
+                      }).filter(Boolean).join(', ')}
+                    </div>
                   </div>
                 </div>
               </div>

@@ -9,7 +9,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "spawn.fun - Launch Tokens on Somnia",
+  title: "react.fun - Launch Tokens on Somnia",
   description: "The fastest token launch pad on Somnia Network. Create, trade, and discover tokens with ultra-low fees and instant transactions.",
 };
 

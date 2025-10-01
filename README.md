@@ -1,5 +1,7 @@
 # 🔄 react.fun - Multi-Chain Token Launchpad
 
+![react.fun Dashboard](./sample1.png)
+
 **react.fun** is the world's first true multi-chain token launchpad powered by **Reactive Smart Contracts**. Launch tokens **once** and have them instantly tradeable on multiple chains (Ethereum, Polygon, BSC, Arbitrum, Base) with **unified pricing** maintained autonomously by Reactive Network.
 
 ## 🎯 **What Makes Us Different**

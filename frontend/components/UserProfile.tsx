@@ -5,6 +5,7 @@ import { formatEther } from 'ethers'
 import { useSomniaReadContract } from '../hooks/useSomniaContract'
 import { getSomniaWebSocket } from '../utils/somniaWebSocket'
 import { TokenFactoryABI } from '../abis'
+import { supportedChains, chainMetadata } from '../lib/reactive-config'
 
 interface UserProfileProps {
   address: string
@@ -83,8 +84,8 @@ export function UserProfile({ address, isOwnProfile = false }: UserProfileProps)
   })
   const [userProfile, setUserProfile] = useState<UserProfile>({
     address,
-    username: `spawn.${address.slice(2, 8)}`,
-    bio: 'Token enthusiast on Spawn.fun',
+    username: `react.${address.slice(2, 8)}`,
+    bio: 'Multi-chain token enthusiast on react.fun',
     avatar: `https://api.dicebear.com/7.x/identicon/svg?seed=${address}`,
     isVerified: false,
     joinedAt: new Date('2024-01-01'),
@@ -93,7 +94,8 @@ export function UserProfile({ address, isOwnProfile = false }: UserProfileProps)
   const [holdings, setHoldings] = useState<TokenHolding[]>([])
   const [createdTokens, setCreatedTokens] = useState<CreatedToken[]>([])
   const [isEditing, setIsEditing] = useState(false)
-  const [somniaBalance, setSomniaBalance] = useState<bigint>(0n)
+  const [chainBalances, setChainBalances] = useState<Record<number, bigint>>({})
+  const [selectedChain, setSelectedChain] = useState<number>(supportedChains[0].id)
 
   // Mock data for demonstration (in production, fetch from subgraph/backend)
   useEffect(() => {
@@ -147,10 +149,10 @@ export function UserProfile({ address, isOwnProfile = false }: UserProfileProps)
     const mockCreatedTokens: CreatedToken[] = [
       {
         address: '0x1234...',
-        name: 'SpawnToken',
-        symbol: 'SPAWN',
-        description: 'The first token created on Spawn.fun with revolutionary tokenomics',
-        image: 'https://api.dicebear.com/7.x/shapes/svg?seed=spawn&backgroundColor=4f46e5',
+        name: 'ReactToken',
+        symbol: 'REACT',
+        description: 'The first multi-chain token on react.fun with unified cross-chain pricing',
+        image: 'https://api.dicebear.com/7.x/shapes/svg?seed=react&backgroundColor=4f46e5',
         marketCap: BigInt('250000000000000000000000'),
         volume24h: BigInt('45000000000000000000'),
         holders: 1247,
@@ -162,7 +164,13 @@ export function UserProfile({ address, isOwnProfile = false }: UserProfileProps)
     setUserStats(mockUserStats)
     setHoldings(mockHoldings)
     setCreatedTokens(mockCreatedTokens)
-    setSomniaBalance(BigInt('5250000000000000000')) // 5.25 ETH
+
+    // Mock multi-chain balances
+    const mockChainBalances: Record<number, bigint> = {}
+    supportedChains.forEach((chain, index) => {
+      mockChainBalances[chain.id] = BigInt(Math.floor(Math.random() * 10) + 1) * BigInt('1000000000000000000') // 1-10 native tokens
+    })
+    setChainBalances(mockChainBalances)
   }, [address])
 
   const formatCurrency = (value: bigint, decimals = 4) => {
@@ -188,9 +196,9 @@ export function UserProfile({ address, isOwnProfile = false }: UserProfileProps)
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-black">
       {/* Header Section */}
-      <div className="bg-gradient-to-r from-blue-600 via-purple-600 to-blue-800 text-white">
+      <div className="bg-gradient-to-r from-purple-600 via-pink-600 to-purple-800 text-white">
         <div className="max-w-6xl mx-auto px-6 py-8">
           <div className="flex items-start justify-between">
             <div className="flex items-center space-x-6">
@@ -227,13 +235,13 @@ export function UserProfile({ address, isOwnProfile = false }: UserProfileProps)
                   </button>
                 </div>
 
-                <p className="text-blue-100 mt-2 max-w-md">{userProfile.bio}</p>
+                <p className="text-purple-100 mt-2 max-w-md">{userProfile.bio}</p>
 
                 {/* Social Links */}
                 {Object.keys(userProfile.socialLinks).length > 0 && (
                   <div className="flex items-center space-x-4 mt-4">
                     {userProfile.socialLinks.twitter && (
-                      <a href={userProfile.socialLinks.twitter} className="text-blue-200 hover:text-white">
+                      <a href={userProfile.socialLinks.twitter} className="text-purple-200 hover:text-white">
                         <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
                           <path d="M23.953 4.57a10 10 0 01-2.825.775 4.958 4.958 0 002.163-2.723c-.951.555-2.005.959-3.127 1.184a4.92 4.92 0 00-8.384 4.482C7.69 8.095 4.067 6.13 1.64 3.162a4.822 4.822 0 00-.666 2.475c0 1.71.87 3.213 2.188 4.096a4.904 4.904 0 01-2.228-.616v.06a4.923 4.923 0 003.946 4.827 4.996 4.996 0 01-2.212.085 4.936 4.936 0 004.604 3.417 9.867 9.867 0 01-6.102 2.105c-.39 0-.779-.023-1.17-.067a13.995 13.995 0 007.557 2.209c9.053 0 13.998-7.496 13.998-13.985 0-.21 0-.42-.015-.63A9.935 9.935 0 0024 4.59z"/>
                         </svg>
@@ -247,15 +255,15 @@ export function UserProfile({ address, isOwnProfile = false }: UserProfileProps)
                 <div className="flex items-center space-x-8 mt-6">
                   <div className="text-center">
                     <div className="text-2xl font-bold">{userStats.followers}</div>
-                    <div className="text-sm text-blue-200">Followers</div>
+                    <div className="text-sm text-purple-200">Followers</div>
                   </div>
                   <div className="text-center">
                     <div className="text-2xl font-bold">{userStats.following}</div>
-                    <div className="text-sm text-blue-200">Following</div>
+                    <div className="text-sm text-purple-200">Following</div>
                   </div>
                   <div className="text-center">
                     <div className="text-2xl font-bold">{userStats.createdTokens}</div>
-                    <div className="text-sm text-blue-200">Created Tokens</div>
+                    <div className="text-sm text-purple-200">Created Tokens</div>
                   </div>
                 </div>
               </div>
@@ -266,13 +274,13 @@ export function UserProfile({ address, isOwnProfile = false }: UserProfileProps)
               {isOwnProfile ? (
                 <button
                   onClick={() => setIsEditing(true)}
-                  className="px-6 py-2 bg-white text-blue-600 rounded-lg font-medium hover:bg-blue-50 transition-colors"
+                  className="px-6 py-2 bg-white text-purple-600 rounded-lg font-medium hover:bg-gray-100 transition-colors"
                 >
                   Edit Profile
                 </button>
               ) : (
                 <>
-                  <button className="px-6 py-2 bg-blue-500 hover:bg-blue-400 rounded-lg font-medium transition-colors">
+                  <button className="px-6 py-2 bg-purple-500 hover:bg-purple-400 rounded-lg font-medium transition-colors">
                     Follow
                   </button>
                   <button className="px-6 py-2 bg-white/10 hover:bg-white/20 rounded-lg font-medium transition-colors">
@@ -286,19 +294,47 @@ export function UserProfile({ address, isOwnProfile = false }: UserProfileProps)
       </div>
 
       {/* Balance Summary */}
-      <div className="bg-white border-b border-gray-200">
+      <div className="bg-gray-900 border-b border-gray-800">
         <div className="max-w-6xl mx-auto px-6 py-6">
+          {/* Multi-Chain Balance Selector */}
+          <div className="mb-6">
+            <h3 className="text-sm font-medium text-gray-300 mb-3">Network Balances</h3>
+            <div className="flex flex-wrap gap-3">
+              {supportedChains.map((chain) => {
+                const metadata = chainMetadata[chain.id as keyof typeof chainMetadata]
+                const balance = chainBalances[chain.id] || 0n
+                const isSelected = selectedChain === chain.id
+
+                return (
+                  <button
+                    key={chain.id}
+                    onClick={() => setSelectedChain(chain.id)}
+                    className={`flex items-center space-x-2 px-4 py-3 rounded-lg border-2 transition-all ${
+                      isSelected
+                        ? 'border-purple-500 bg-purple-500/10'
+                        : 'border-gray-700 bg-gray-800 hover:border-gray-600'
+                    }`}
+                  >
+                    <span className="text-xl">{metadata.logo}</span>
+                    <div className="text-left">
+                      <div className="text-xs text-gray-400">{metadata.name}</div>
+                      <div className="text-sm font-semibold text-white">
+                        {formatCurrency(balance, 2)} {chain.nativeCurrency.symbol}
+                      </div>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <div className="text-center">
-              <div className="text-sm text-gray-600">Somnia Balance</div>
-              <div className="text-2xl font-bold text-gray-900">{formatCurrency(somniaBalance)} ETH</div>
+              <div className="text-sm text-gray-400">Portfolio Value</div>
+              <div className="text-2xl font-bold text-white">${formatCurrency(userStats.totalTokenValue)}</div>
             </div>
             <div className="text-center">
-              <div className="text-sm text-gray-600">Portfolio Value</div>
-              <div className="text-2xl font-bold text-gray-900">${formatCurrency(userStats.totalTokenValue)}</div>
-            </div>
-            <div className="text-center">
-              <div className="text-sm text-gray-600">Total PnL</div>
+              <div className="text-sm text-gray-400">Total PnL</div>
               <div className={`text-2xl font-bold ${getPnLColor(getTotalPnL())}`}>
                 {getTotalPnL() >= 0 ? '+' : ''}${formatCurrency(getTotalPnL())}
               </div>
@@ -307,16 +343,21 @@ export function UserProfile({ address, isOwnProfile = false }: UserProfileProps)
               </div>
             </div>
             <div className="text-center">
-              <div className="text-sm text-gray-600">Total Volume</div>
-              <div className="text-2xl font-bold text-gray-900">{formatCurrency(userStats.totalVolume)} ETH</div>
-              <div className="text-sm text-gray-500">{userStats.totalTrades} trades</div>
+              <div className="text-sm text-gray-400">Total Volume</div>
+              <div className="text-2xl font-bold text-white">{formatCurrency(userStats.totalVolume)} ETH</div>
+              <div className="text-sm text-gray-400">{userStats.totalTrades} trades</div>
+            </div>
+            <div className="text-center">
+              <div className="text-sm text-gray-400">Active Chains</div>
+              <div className="text-2xl font-bold text-white">{supportedChains.length}</div>
+              <div className="text-sm text-gray-400">Multi-chain enabled</div>
             </div>
           </div>
         </div>
       </div>
 
       {/* Tabs Navigation */}
-      <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
+      <div className="bg-gray-900 border-b border-gray-800 sticky top-0 z-10">
         <div className="max-w-6xl mx-auto px-6">
           <div className="flex space-x-8">
             {[
@@ -330,12 +371,16 @@ export function UserProfile({ address, isOwnProfile = false }: UserProfileProps)
                 onClick={() => setActiveTab(tab.id as any)}
                 className={`py-4 px-1 border-b-2 font-medium text-sm ${
                   activeTab === tab.id
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    ? 'border-purple-500 text-purple-400'
+                    : 'border-transparent text-gray-400 hover:text-white hover:border-gray-700'
                 }`}
               >
                 {tab.label}
-                <span className="ml-2 bg-gray-100 text-gray-600 py-1 px-2 rounded-full text-xs">
+                <span className={`ml-2 py-1 px-2 rounded-full text-xs ${
+                  activeTab === tab.id
+                    ? 'bg-purple-500/20 text-purple-300'
+                    : 'bg-gray-800 text-gray-400'
+                }`}>
                   {tab.count}
                 </span>
               </button>
@@ -349,37 +394,37 @@ export function UserProfile({ address, isOwnProfile = false }: UserProfileProps)
         {activeTab === 'portfolio' && (
           <div className="space-y-6">
             <div className="flex justify-between items-center">
-              <h2 className="text-xl font-bold text-gray-900">Token Holdings</h2>
-              <div className="text-sm text-gray-500">
+              <h2 className="text-xl font-bold text-white">Token Holdings</h2>
+              <div className="text-sm text-gray-400">
                 Total Value: ${formatCurrency(userStats.totalTokenValue)}
               </div>
             </div>
 
-            <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
+            <div className="bg-gray-900 rounded-xl shadow-lg border border-gray-800 overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="bg-gray-50">
+                  <thead className="bg-gray-800">
                     <tr>
-                      <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                         Token
                       </th>
-                      <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                         Balance
                       </th>
-                      <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                         Value
                       </th>
-                      <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                         Market Cap
                       </th>
-                      <th className="px-6 py-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                         24h Change
                       </th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
+                  <tbody className="bg-gray-900 divide-y divide-gray-800">
                     {holdings.map((holding) => (
-                      <tr key={holding.tokenAddress} className="hover:bg-gray-50">
+                      <tr key={holding.tokenAddress} className="hover:bg-gray-800/50">
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center">
                             <img
@@ -388,22 +433,22 @@ export function UserProfile({ address, isOwnProfile = false }: UserProfileProps)
                               className="w-10 h-10 rounded-full mr-4"
                             />
                             <div>
-                              <div className="text-sm font-medium text-gray-900">{holding.name}</div>
-                              <div className="text-sm text-gray-500">${holding.symbol}</div>
+                              <div className="text-sm font-medium text-white">{holding.name}</div>
+                              <div className="text-sm text-gray-400">${holding.symbol}</div>
                             </div>
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
                           {formatCurrency(holding.balance, 0)} {holding.symbol}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
                           ${formatCurrency(holding.value)}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
                           {formatMarketCap(holding.marketCap)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm">
-                          <span className={holding.priceChange24h >= 0 ? 'text-green-600' : 'text-red-600'}>
+                          <span className={holding.priceChange24h >= 0 ? 'text-green-500' : 'text-red-500'}>
                             {holding.priceChange24h >= 0 ? '+' : ''}{holding.priceChange24h.toFixed(2)}%
                           </span>
                         </td>
@@ -418,11 +463,11 @@ export function UserProfile({ address, isOwnProfile = false }: UserProfileProps)
 
         {activeTab === 'created' && (
           <div className="space-y-6">
-            <h2 className="text-xl font-bold text-gray-900">Created Tokens</h2>
+            <h2 className="text-xl font-bold text-white">Created Tokens</h2>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {createdTokens.map((token) => (
-                <div key={token.address} className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden hover:shadow-xl transition-shadow">
+                <div key={token.address} className="bg-gray-900 rounded-xl shadow-lg border border-gray-800 overflow-hidden hover:shadow-xl hover:border-purple-500/50 transition-all">
                   <img
                     src={token.image}
                     alt={token.name}
@@ -430,32 +475,32 @@ export function UserProfile({ address, isOwnProfile = false }: UserProfileProps)
                   />
                   <div className="p-6">
                     <div className="flex items-center justify-between mb-2">
-                      <h3 className="text-lg font-bold text-gray-900">{token.name}</h3>
+                      <h3 className="text-lg font-bold text-white">{token.name}</h3>
                       {token.migrated && (
-                        <span className="bg-green-100 text-green-800 text-xs font-medium px-2 py-1 rounded-full">
+                        <span className="bg-green-500/20 text-green-400 text-xs font-medium px-2 py-1 rounded-full">
                           Migrated
                         </span>
                       )}
                     </div>
-                    <p className="text-gray-600 mb-2">${token.symbol}</p>
-                    <p className="text-sm text-gray-700 mb-4 line-clamp-2">{token.description}</p>
+                    <p className="text-gray-400 mb-2">${token.symbol}</p>
+                    <p className="text-sm text-gray-300 mb-4 line-clamp-2">{token.description}</p>
 
                     <div className="grid grid-cols-2 gap-4 text-sm">
                       <div>
-                        <p className="text-gray-600">Market Cap</p>
-                        <p className="font-semibold">{formatMarketCap(token.marketCap)}</p>
+                        <p className="text-gray-400">Market Cap</p>
+                        <p className="font-semibold text-white">{formatMarketCap(token.marketCap)}</p>
                       </div>
                       <div>
-                        <p className="text-gray-600">24h Volume</p>
-                        <p className="font-semibold">{formatCurrency(token.volume24h)} ETH</p>
+                        <p className="text-gray-400">24h Volume</p>
+                        <p className="font-semibold text-white">{formatCurrency(token.volume24h)} ETH</p>
                       </div>
                       <div>
-                        <p className="text-gray-600">Holders</p>
-                        <p className="font-semibold">{token.holders.toLocaleString()}</p>
+                        <p className="text-gray-400">Holders</p>
+                        <p className="font-semibold text-white">{token.holders.toLocaleString()}</p>
                       </div>
                       <div>
-                        <p className="text-gray-600">Created</p>
-                        <p className="font-semibold">{token.createdAt.toLocaleDateString()}</p>
+                        <p className="text-gray-400">Created</p>
+                        <p className="font-semibold text-white">{token.createdAt.toLocaleDateString()}</p>
                       </div>
                     </div>
                   </div>
@@ -467,11 +512,11 @@ export function UserProfile({ address, isOwnProfile = false }: UserProfileProps)
 
         {activeTab === 'activity' && (
           <div className="space-y-6">
-            <h2 className="text-xl font-bold text-gray-900">Recent Activity</h2>
-            <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
+            <h2 className="text-xl font-bold text-white">Recent Activity</h2>
+            <div className="bg-gray-900 rounded-xl shadow-lg border border-gray-800 p-6">
               <div className="text-center py-8">
-                <p className="text-gray-500">Activity feed coming soon...</p>
-                <p className="text-sm text-gray-400 mt-2">Track all trading activity and interactions</p>
+                <p className="text-gray-400">Activity feed coming soon...</p>
+                <p className="text-sm text-gray-500 mt-2">Track all trading activity and interactions</p>
               </div>
             </div>
           </div>
@@ -479,11 +524,11 @@ export function UserProfile({ address, isOwnProfile = false }: UserProfileProps)
 
         {activeTab === 'followers' && (
           <div className="space-y-6">
-            <h2 className="text-xl font-bold text-gray-900">Followers & Following</h2>
-            <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-6">
+            <h2 className="text-xl font-bold text-white">Followers & Following</h2>
+            <div className="bg-gray-900 rounded-xl shadow-lg border border-gray-800 p-6">
               <div className="text-center py-8">
-                <p className="text-gray-500">Social features coming soon...</p>
-                <p className="text-sm text-gray-400 mt-2">Follow other traders and creators</p>
+                <p className="text-gray-400">Social features coming soon...</p>
+                <p className="text-sm text-gray-500 mt-2">Follow other traders and creators</p>
               </div>
             </div>
           </div>

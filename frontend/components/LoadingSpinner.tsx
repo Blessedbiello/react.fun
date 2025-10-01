@@ -68,7 +68,7 @@ export function FullPageLoader({ text = 'Loading...' }: { text?: string }) {
     <div className="min-h-screen bg-gray-900 flex items-center justify-center">
       <div className="text-center">
         <LoadingSpinner size="lg" className="mb-4" />
-        <h2 className="text-xl font-semibold text-white mb-2">spawn.fun</h2>
+        <h2 className="text-xl font-semibold text-white mb-2">react.fun</h2>
         <p className="text-gray-400">{text}</p>
       </div>
     </div>

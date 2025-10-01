@@ -110,7 +110,7 @@ export function AdminDashboard({ isAdmin = false }: DashboardProps) {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold">Admin Dashboard</h2>
-          <p className="text-gray-400">Real-time monitoring and analytics for spawn.fun</p>
+          <p className="text-gray-400">Real-time monitoring and analytics for react.fun</p>
         </div>
         <div className="flex items-center space-x-4">
           <button
@@ -297,7 +297,7 @@ export function AdminDashboard({ isAdmin = false }: DashboardProps) {
 
       {/* Footer */}
       <div className="text-center text-sm text-gray-400">
-        Monitoring dashboard for spawn.fun • Data refreshes every {autoRefresh ? '10 seconds' : 'manually'}
+        Monitoring dashboard for react.fun • Data refreshes every {autoRefresh ? '10 seconds' : 'manually'}
       </div>
     </div>
   )

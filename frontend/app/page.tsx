@@ -8,11 +8,12 @@ import { EnhancedTokenBoard } from '@/components/EnhancedTokenBoard'
 import { WalletButton } from '@/components/WalletButton'
 import { Sidebar } from '@/components/Sidebar'
 import { AdminDashboard } from '@/components/AdminDashboard'
+import { UserProfile } from '@/components/UserProfile'
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<string>('home')
   const [showEnhancedUI, setShowEnhancedUI] = useState(true)
-  const { isConnected } = useWallet()
+  const { isConnected, address } = useWallet()
 
   const renderMainContent = () => {
     switch (activeTab) {
@@ -56,34 +57,30 @@ export default function Home() {
                   <span className="bg-green-500 text-white text-xs px-2 py-1 rounded-full font-bold">NEW</span>
                   <span className="font-bold">CHAT ROOMS</span>
                 </div>
-                <div className="text-sm mt-1">Connect with the spawn.fun community</div>
+                <div className="text-sm mt-1">Connect with the react.fun community</div>
               </div>
             </div>
           </div>
         )
       case 'profile':
-        return (
-          <div className="space-y-6">
-            <div className="text-center py-12">
-              <div className="text-6xl mb-4">👤</div>
-              <h2 className="text-2xl font-bold mb-4">Your Profile</h2>
-              <p className="text-gray-400 mb-8">
-                Manage your tokens, track your portfolio, and view your creator rewards.
-              </p>
-              {!isConnected ? (
+        if (!isConnected || !address) {
+          return (
+            <div className="space-y-6">
+              <div className="text-center py-12">
+                <div className="text-6xl mb-4">👤</div>
+                <h2 className="text-2xl font-bold mb-4">Your Profile</h2>
+                <p className="text-gray-400 mb-8">
+                  Manage your tokens, track your portfolio, and view your creator rewards.
+                </p>
                 <div className="bg-yellow-500/20 border border-yellow-500/30 text-yellow-400 p-4 rounded-lg max-w-md mx-auto">
                   <div className="font-bold">Connect Wallet</div>
                   <div className="text-sm mt-1">Connect your wallet to view your profile</div>
                 </div>
-              ) : (
-                <div className="bg-blue-500/20 border border-blue-500/30 text-blue-400 p-4 rounded-lg max-w-md mx-auto">
-                  <div className="font-bold">Profile Features</div>
-                  <div className="text-sm mt-1">Portfolio tracking and rewards dashboard coming soon</div>
-                </div>
-              )}
+              </div>
             </div>
-          </div>
-        )
+          )
+        }
+        return <UserProfile address={address} isOwnProfile={true} />
       case 'support':
         return (
           <div className="space-y-6">
@@ -91,7 +88,7 @@ export default function Home() {
               <div className="text-6xl mb-4">🛟</div>
               <h2 className="text-2xl font-bold mb-4">Support Center</h2>
               <p className="text-gray-400 mb-8">
-                Get help with spawn.fun, learn about Somnia Network, and access developer resources.
+                Get help with react.fun, learn about Somnia Network, and access developer resources.
               </p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
                 <div className="bg-gray-800 rounded-lg p-6">
@@ -128,7 +125,7 @@ export default function Home() {
             <div className="flex items-center space-x-4">
               {/* Mobile App Banner */}
               <div className="hidden lg:flex items-center space-x-2 bg-gradient-to-r from-purple-500/20 to-pink-500/20 border border-purple-500/30 rounded-lg px-4 py-2">
-                <span className="text-sm">🚀 spawn.fun is better on mobile, faster trades, chat, and more.</span>
+                <span className="text-sm">🚀 react.fun is better on mobile, faster trades, chat, and more.</span>
                 <button className="bg-green-500 hover:bg-green-600 text-white text-xs px-3 py-1 rounded-lg font-medium transition-colors">
                   Download now →
                 </button>
@@ -173,10 +170,10 @@ export default function Home() {
               Built on Somnia Network - Ultra-fast EVM with 1M+ TPS, sub-cent fees
             </div>
             <div className="flex space-x-6 text-sm text-gray-400">
-              <a href="https://docs.spawn.fun" className="hover:text-white transition-colors">Docs</a>
-              <a href="https://github.com/spawn-fun" className="hover:text-white transition-colors">GitHub</a>
-              <a href="https://discord.gg/spawn" className="hover:text-white transition-colors">Discord</a>
-              <a href="https://twitter.com/spawn_fun" className="hover:text-white transition-colors">Twitter</a>
+              <a href="https://docs.react.fun" className="hover:text-white transition-colors">Docs</a>
+              <a href="https://github.com/Blessedbiello/react.fun" className="hover:text-white transition-colors">GitHub</a>
+              <a href="https://discord.gg/react" className="hover:text-white transition-colors">Discord</a>
+              <a href="https://twitter.com/react_fun" className="hover:text-white transition-colors">Twitter</a>
             </div>
           </div>
         </footer>

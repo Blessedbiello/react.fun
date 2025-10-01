@@ -100,7 +100,7 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
             <span className="text-white font-bold text-sm">S</span>
           </div>
           <h1 className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-            spawn.fun
+            react.fun
           </h1>
         </div>
       </div>
@@ -161,7 +161,7 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-300">spawn.fun tokens</span>
+                <span className="text-gray-300">react.fun tokens</span>
                 <span className="text-white">328</span>
               </div>
               <div className="text-xs text-gray-500">3.5M PBTS</div>
@@ -173,7 +173,7 @@ export function Sidebar({ activeTab, onTabChange }: SidebarProps) {
       {/* Mobile App Section */}
       <div className="p-6 border-t border-gray-800">
         <div className="bg-gray-800 rounded-lg p-4">
-          <h3 className="font-bold text-white mb-2">spawn.fun app</h3>
+          <h3 className="font-bold text-white mb-2">react.fun app</h3>
 
           {/* QR Code */}
           <div className="bg-white p-3 rounded-lg mb-3 flex items-center justify-center">

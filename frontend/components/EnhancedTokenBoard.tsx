@@ -234,7 +234,7 @@ export function EnhancedTokenBoard() {
       <div className="flex flex-col space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-2xl font-bold mb-2">spawn.fun</h2>
+            <h2 className="text-2xl font-bold mb-2">react.fun</h2>
             <p className="text-gray-400">
               Discover and trade tokens on Somnia Network - 1M+ TPS, sub-cent fees
             </p>
@@ -437,7 +437,7 @@ export function EnhancedTokenBoard() {
         <div className="text-center py-12">
           <div className="text-gray-400 mb-4">No tokens found</div>
           <p className="text-sm text-gray-500">
-            {searchQuery ? `No results for "${searchQuery}"` : 'Be the first to create a token on spawn.fun!'}
+            {searchQuery ? `No results for "${searchQuery}"` : 'Be the first to create a token on react.fun!'}
           </p>
         </div>
       )}

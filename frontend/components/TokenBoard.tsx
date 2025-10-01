@@ -199,7 +199,7 @@ export function TokenBoard() {
         <div className="text-center py-12">
           <div className="text-gray-400 mb-4">No tokens found</div>
           <p className="text-sm text-gray-500">
-            Be the first to create a token on spawn.fun!
+            Be the first to create a token on react.fun!
           </p>
         </div>
       )}
